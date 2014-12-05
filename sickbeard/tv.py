@@ -97,6 +97,7 @@ class TVShow(object):
         self._scene = 0
         self._rls_ignore_words = ""
         self._rls_require_words = ""
+        self._rls_prefer_words = ""
         self._default_ep_status = ""
         self.dirty = True
 
@@ -139,6 +140,7 @@ class TVShow(object):
     scene = property(lambda self: self._scene, dirty_setter("_scene"))
     rls_ignore_words = property(lambda self: self._rls_ignore_words, dirty_setter("_rls_ignore_words"))
     rls_require_words = property(lambda self: self._rls_require_words, dirty_setter("_rls_require_words"))
+    rls_prefer_words = property(lambda self: self._rls_prefer_words, dirty_setter("_rls_prefer_words"))
     default_ep_status = property(lambda self: self._default_ep_status, dirty_setter("_default_ep_status"))
 
     @property
@@ -282,10 +284,10 @@ class TVShow(object):
         cur_indexerid = self.indexerid
 
         # In some situations self.status = None.. need to figure out where that is!
-        #if not self.status:
-        #    self.status = ''
-        #    logger.log("Status missing for showid: [%s] with status: [%s]" %
-        #               (cur_indexerid, self.status), logger.DEBUG)
+        if not self.status:
+            self.status = ''
+            logger.log("Status missing for showid: [%s] with status: [%s]" % 
+                       (cur_indexerid, self.status), logger.DEBUG)
         
         # if show is not 'Ended' always update (status 'Continuing' or '')
         if 'Ended' not in self.status:
@@ -580,7 +582,6 @@ class TVShow(object):
 
         # Done updating save last update date
         self.last_update_indexer = datetime.date.today().toordinal()
-
         self.saveToDB()
 
         return scannedEps
@@ -720,7 +721,7 @@ class TVShow(object):
                 elif oldStatus not in (SNATCHED, SNATCHED_PROPER):
                     newStatus = DOWNLOADED
 
-                if newStatus is not None:
+                if newStatus != None:
                     with curEp.lock:
                         logger.log(u"STATUS: we have an associated file, so setting the status from " + str(
                             curEp.status) + u" to DOWNLOADED/" + str(Quality.statusFromName(file, anime=self.is_anime)),
@@ -827,6 +828,7 @@ class TVShow(object):
 
             self.rls_ignore_words = sqlResults[0]["rls_ignore_words"]
             self.rls_require_words = sqlResults[0]["rls_require_words"]
+            self.rls_prefer_words = sqlResults[0]["rls_prefer_words"]
 
             self.default_ep_status = sqlResults[0]["default_ep_status"]
             if not self.default_ep_status:
@@ -910,13 +912,10 @@ class TVShow(object):
                      'last_update': ''
         }
 
-        i = imdb.IMDb()
-        if not self.imdbid:
-            self.imdbid = i.title2imdbID(self.name, kind='tv series')
-
         if self.imdbid:
             logger.log(str(self.indexerid) + u": Loading show info from IMDb")
 
+            i = imdb.IMDb()
             imdbTv = i.get_movie(str(re.sub("[^0-9]", "", self.imdbid)))
 
             for key in filter(lambda x: x.replace('_', ' ') in imdbTv.keys(), imdb_info.keys()):
@@ -1113,28 +1112,30 @@ class TVShow(object):
             myDB.mass_action(sql_l)
 
     def downloadSubtitles(self, force=False):
+        # TODO: Add support for force option
         if not ek.ek(os.path.isdir, self._location):
             logger.log(str(self.indexerid) + ": Show dir doesn't exist, can't download subtitles", logger.DEBUG)
             return
-
         logger.log(str(self.indexerid) + ": Downloading subtitles", logger.DEBUG)
 
         try:
-            episodes = self.getAllEpisodes(has_location=True)
-            if not len(episodes) > 0:
-                logger.log(str(self.indexerid) + ": No episodes to download subtitles for " + self.name, logger.DEBUG)
-                return
+            myDB = db.DBConnection()
+            episodes = myDB.select(
+                "SELECT location FROM tv_episodes WHERE showid = ? AND location NOT LIKE '' ORDER BY season DESC, episode DESC",
+                [self.indexerid])
 
-            for episode in episodes:
-                episode.downloadSubtitles(force=force)
-
-        except Exception:
+            for episodeLoc in episodes:
+                episode = self.makeEpFromFile(episodeLoc['location'])
+                subtitles = episode.downloadSubtitles(force=force)
+        except Exception as e:
             logger.log("Error occurred when downloading subtitles: " + traceback.format_exc(), logger.DEBUG)
+            return
+
 
     def saveToDB(self, forceSave=False):
 
         if not self.dirty and not forceSave:
-            logger.log(str(self.indexerid) + ": Not saving show to db - record is not dirty", logger.DEBUG)
+            logger.log(str(self.indexerid) + u": Not saving show to db - record is not dirty", logger.DEBUG)
             return
 
         logger.log(str(self.indexerid) + u": Saving show info to database", logger.DEBUG)
@@ -1165,6 +1166,7 @@ class TVShow(object):
                         "last_update_indexer": self.last_update_indexer,
                         "rls_ignore_words": self.rls_ignore_words,
                         "rls_require_words": self.rls_require_words,
+                        "rls_prefer_words": self.rls_prefer_words,
                         "default_ep_status": self.default_ep_status
         }
 
@@ -1406,7 +1408,7 @@ class TVEpisode(object):
             need_languages = set(sickbeard.SUBTITLES_LANGUAGES) - set(self.subtitles)
             subtitles = subliminal.download_subtitles([self.location], languages=need_languages,
                                                       services=sickbeard.subtitles.getEnabledServiceList(), force=force,
-                                                      multi=sickbeard.SUBTITLES_MULTI, cache_dir=sickbeard.CACHE_DIR)
+                                                      multi=True, cache_dir=sickbeard.CACHE_DIR)
 
             if sickbeard.SUBTITLES_DIR:
                 for video in subtitles:
@@ -1666,7 +1668,8 @@ class TVEpisode(object):
         if getattr(myEp, 'absolute_number', None) is None:
             logger.log(u"This episode (" + self.show.name + " - " + str(season) + "x" + str(
                 episode) + ") has no absolute number on " + sickbeard.indexerApi(
-                self.indexer).name, logger.DEBUG)
+                self.indexer).name
+                       , logger.DEBUG)
         else:
             logger.log(
                 str(self.show.indexerid) + ": The absolute_number for " + str(season) + "x" + str(episode) + " is : " +

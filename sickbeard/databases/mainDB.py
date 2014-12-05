@@ -167,7 +167,7 @@ class InitialSchema(db.SchemaUpgrade):
                 "CREATE TABLE imdb_info (indexer_id INTEGER PRIMARY KEY, imdb_id TEXT, title TEXT, year NUMERIC, akas TEXT, runtimes NUMERIC, genres TEXT, countries TEXT, country_codes TEXT, certificates TEXT, rating TEXT, votes INTEGER, last_update NUMERIC)",
                 "CREATE TABLE info (last_backlog NUMERIC, last_indexer NUMERIC, last_proper_search NUMERIC)",
                 "CREATE TABLE scene_numbering(indexer TEXT, indexer_id INTEGER, season INTEGER, episode INTEGER,scene_season INTEGER, scene_episode INTEGER, PRIMARY KEY(indexer_id, season, episode))",
-                "CREATE TABLE tv_shows (show_id INTEGER PRIMARY KEY, indexer_id NUMERIC, indexer TEXT, show_name TEXT, location TEXT, network TEXT, genre TEXT, classification TEXT, runtime NUMERIC, quality NUMERIC, airs TEXT, status TEXT, flatten_folders NUMERIC, paused NUMERIC, startyear NUMERIC, air_by_date NUMERIC, lang TEXT, subtitles NUMERIC, notify_list TEXT, imdb_id TEXT, last_update_indexer NUMERIC, dvdorder NUMERIC, archive_firstmatch NUMERIC, rls_require_words TEXT, rls_ignore_words TEXT, sports NUMERIC);",
+                "CREATE TABLE tv_shows (show_id INTEGER PRIMARY KEY, indexer_id NUMERIC, indexer TEXT, show_name TEXT, location TEXT, network TEXT, genre TEXT, classification TEXT, runtime NUMERIC, quality NUMERIC, airs TEXT, status TEXT, flatten_folders NUMERIC, paused NUMERIC, startyear NUMERIC, air_by_date NUMERIC, lang TEXT, subtitles NUMERIC, notify_list TEXT, imdb_id TEXT, last_update_indexer NUMERIC, dvdorder NUMERIC, archive_firstmatch NUMERIC, rls_require_words TEXT, rls_ignore_words TEXT, rls_prefer_words TEXT, sports NUMERIC);",
                 "CREATE TABLE tv_episodes (episode_id INTEGER PRIMARY KEY, showid NUMERIC, indexerid NUMERIC, indexer TEXT, name TEXT, season NUMERIC, episode NUMERIC, description TEXT, airdate NUMERIC, hasnfo NUMERIC, hastbn NUMERIC, status NUMERIC, location TEXT, file_size NUMERIC, release_name TEXT, subtitles TEXT, subtitles_searchcount NUMERIC, subtitles_lastsearch TIMESTAMP, is_proper NUMERIC, scene_season NUMERIC, scene_episode NUMERIC);",
                 "CREATE UNIQUE INDEX idx_indexer_id ON tv_shows (indexer_id)",
                 "CREATE INDEX idx_showid ON tv_episodes (showid);",
@@ -739,7 +739,7 @@ class ConvertIndexerToInteger(AddSceneNumbering):
 
 
 class AddRequireAndIgnoreWords(ConvertIndexerToInteger):
-    """ Adding column rls_require_words and rls_ignore_words to tv_shows """
+    """ Adding column rls_require_words and rls_ignore_words and rls_prefer_words to tv_shows """
 
     def test(self):
         return self.checkDBVersion() >= 29
@@ -754,6 +754,10 @@ class AddRequireAndIgnoreWords(ConvertIndexerToInteger):
         logger.log(u"Adding column rls_ignore_words to tvshows")
         if not self.hasColumn("tv_shows", "rls_ignore_words"):
             self.addColumn("tv_shows", "rls_ignore_words", "TEXT", "")
+
+        logger.log(u"Adding column rls_prefer_words to tvshows")
+        if not self.hasColumn("tv_shows", "rls_prefer_words"):
+            self.addColumn("tv_shows", "rls_prefer_words", "TEXT", "")
 
         self.incDBVersion()
 
